@@ -85,10 +85,24 @@ failure is silent and only shows up as inconsistent merge decisions.
 ## Consuming
 
 ```bash
-# ~/.npmrc, or a repo-level .npmrc committed to each project
+# ~/.npmrc  — the USER config, not a repo-level .npmrc
 @shashiladev-heshan:registry=https://npm.pkg.github.com
-//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}
+//npm.pkg.github.com/:_authToken=<a token with read:packages>
 ```
+
+**It has to be the user config.** `npm install -g` ignores a project-level
+`.npmrc` — there is no project — so a repo-level file gets you:
+
+```
+npm error 404 Not Found - GET https://registry.npmjs.org/@scope%2fgovctl
+```
+
+which reads like "the package was never published" and sends people looking in
+entirely the wrong place. Either put it in `~/.npmrc`, or point npm at a specific
+file: `NPM_CONFIG_USERCONFIG=/path/to/.npmrc npm i -g @scope/govctl`.
+
+In Actions this is handled for you — `actions/setup-node` with `registry-url` and
+`scope` writes an npmrc and sets `NPM_CONFIG_USERCONFIG` to it.
 
 Then the workflows work as written:
 

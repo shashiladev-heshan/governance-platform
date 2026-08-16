@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { govctl, makeWorld, cutRelease, readJson, writeJson, appendTo } from './helpers.js';
+import { detectTooling, renderLefthook } from '../dist/lib/lefthook.js';
 
 describe('onboarding', () => {
   let world;
@@ -35,19 +36,47 @@ describe('onboarding', () => {
   test('the hooks it installs actually invoke govctl', () => {
     const lefthook = readFileSync(join(world.project, 'lefthook.yml'), 'utf8');
     assert.match(lefthook, /pre-commit:/);
-    assert.match(lefthook, /govctl verify/);
     assert.match(lefthook, /pre-push:/);
+    assert.match(lefthook, /^ +govctl verify$/m);
+    assert.match(lefthook, /govctl is not installed/);
+
+    // Never `npx govctl`: on a machine without govctl installed, npx fetches and
+    // executes whatever unscoped `govctl` package exists on the public registry.
+    assert.doesNotMatch(lefthook, /npx govctl/);
   });
 
-  test('project formatters are kept away from governed content', () => {
-    // Without this, `prettier --write .` rewrites every SKILL.md and the project
-    // fails its own integrity check for a reason nobody would guess.
+  test('no lint hook is generated for a project with no linter configured', () => {
+    // Otherwise every commit in a fresh project fails with "ESLint couldn't find
+    // a config file", and developers learn that governance hooks are broken.
     const lefthook = readFileSync(join(world.project, 'lefthook.yml'), 'utf8');
-    assert.match(lefthook, /exclude:[\s\S]*\.governance/);
+    assert.doesNotMatch(lefthook, /^ +run: npx eslint/m);
+    assert.doesNotMatch(lefthook, /^ +run: npx prettier/m);
+    assert.match(lefthook, /No eslint or prettier config found/);
+  });
+
+  test('when the project does have formatters, they exclude governed content', () => {
+    // Without the exclude, `prettier --write .` rewrites every SKILL.md and the
+    // project fails its own integrity check for a reason nobody would guess.
+    const rendered = renderLefthook({ eslint: true, prettier: true });
+    assert.match(rendered, /run: npx eslint \{staged_files\}/);
+    assert.match(rendered, /run: npx prettier --check \{staged_files\}/);
+    for (const block of rendered.split('    lint:').slice(1)) {
+      assert.match(block, /exclude:[\s\S]*\.governance/);
+    }
     assert.match(
       readFileSync(join(world.project, '.prettierignore'), 'utf8'),
       /^\.governance\/$/m,
     );
+  });
+
+  test('formatter detection recognises both flat and legacy configs', () => {
+    const dir = join(world.root, 'detect-probe');
+    mkdirSync(dir, { recursive: true });
+    assert.deepEqual(detectTooling(dir), { eslint: false, prettier: false });
+
+    writeFileSync(join(dir, 'eslint.config.js'), 'export default [];\n');
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ prettier: { semi: true } }));
+    assert.deepEqual(detectTooling(dir), { eslint: true, prettier: true });
   });
 
   test('init refuses to clobber an existing project', () => {

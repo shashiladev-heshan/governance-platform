@@ -25,12 +25,23 @@ jobs:
     name: governance-integrity
     runs-on: ubuntu-latest
     steps:
+      # persist-credentials: false matters. By default checkout writes
+      #   http.https://github.com/.extraheader = AUTHORIZATION: basic <GITHUB_TOKEN>
+      # into the repo's git config, which applies to EVERY github.com URL and
+      # takes precedence over the registry credentials below — so govctl's clone
+      # of the registry is attempted with a token scoped to this repo only, and
+      # fails with a bare "git ls-remote failed".
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-          registry-url: ${{ vars.NPM_REGISTRY_URL || 'https://registry.npmjs.org' }}
+          registry-url: ${{ vars.NPM_REGISTRY_URL || 'https://npm.pkg.github.com' }}
+          # Without `scope`, setup-node makes this the DEFAULT registry and every
+          # public dependency (commander, zod, ...) is looked up there too, and 404s.
+          scope: ${{ vars.NPM_SCOPE || '@shashiladev-heshan' }}
 
       # Installed from the private registry, never from the PR's node_modules or
       # a script in the repo — the verifier must not be code the PR can change.
@@ -38,6 +49,17 @@ jobs:
         run: npm install -g @shashiladev-heshan/govctl@${{ vars.GOVCTL_VERSION || 'latest' }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_READ_TOKEN }}
+
+      # govctl clones the registry over https. For a private registry repo this
+      # is what authenticates the clone, without putting a token in governance.json.
+      # (`secrets` is not available in step-level `if`, hence the shell guard.)
+      - name: Authenticate git to the registry
+        run: |
+          if [ -n "${TOKEN:-}" ]; then
+            git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
+          fi
+        env:
+          TOKEN: ${{ secrets.GOVERNANCE_REPO_TOKEN }}
 
       # The trust root comes from org configuration, not the repository.
       - name: Configure trust root
@@ -64,7 +86,10 @@ jobs:
         with:
           node-version: "20"
           cache: npm
-          registry-url: ${{ vars.NPM_REGISTRY_URL || 'https://registry.npmjs.org' }}
+          registry-url: ${{ vars.NPM_REGISTRY_URL || 'https://npm.pkg.github.com' }}
+          # Without `scope`, setup-node makes this the DEFAULT registry and every
+          # public dependency (commander, zod, ...) is looked up there too, and 404s.
+          scope: ${{ vars.NPM_SCOPE || '@shashiladev-heshan' }}
 
       # `npm ci` reinstalls @shashiladev-heshan/eslint-config from the lockfile, so a locally
       # patched node_modules on a developer machine has no effect here.
@@ -95,8 +120,11 @@ jobs:
             --sarif --output semgrep.sarif \
             --metrics=off
 
+      # Requires GitHub Advanced Security on private repos. The semgrep exit code
+      # above is the gate — this upload is a convenience, so it never fails the job.
       - uses: github/codeql-action/upload-sarif@v3
         if: always()
+        continue-on-error: true
         with:
           sarif_file: semgrep.sarif
           category: governance-patterns
@@ -113,7 +141,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-          registry-url: ${{ vars.NPM_REGISTRY_URL || 'https://registry.npmjs.org' }}
+          registry-url: ${{ vars.NPM_REGISTRY_URL || 'https://npm.pkg.github.com' }}
+          # Without `scope`, setup-node makes this the DEFAULT registry and every
+          # public dependency (commander, zod, ...) is looked up there too, and 404s.
+          scope: ${{ vars.NPM_SCOPE || '@shashiladev-heshan' }}
 
       - name: Install validator
         run: npm install -g @shashiladev-heshan/governance-validator@${{ vars.VALIDATOR_VERSION || 'latest' }}
@@ -132,6 +163,11 @@ jobs:
       - name: Semantic review
         id: review
         run: |
+          if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+            echo "::error::ANTHROPIC_API_KEY is not configured — the semantic check cannot run."
+            echo "Set the secret, or set this check to non-required while you pilot."
+            exit 1
+          fi
           governance-validator review \
             --diff pr.diff \
             --governance .governance \
