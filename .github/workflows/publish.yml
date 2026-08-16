@@ -36,7 +36,7 @@ jobs:
         with:
           node-version: "20"
           # GitHub Packages. For npmjs private orgs use https://registry.npmjs.org
-          # and an NPM_TOKEN instead — see docs/PUBLISHING.md.
+          # and an NPM_TOKEN instead — see "Publishing new tooling packages" in the README.
           registry-url: "https://npm.pkg.github.com"
           scope: "@org"
 

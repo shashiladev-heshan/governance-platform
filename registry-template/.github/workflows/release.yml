@@ -55,7 +55,7 @@ jobs:
       # CURRENT: ed25519 dev signer, private key held as a repo secret. The public
       # half is distributed to developers and CI in the govctl trust store.
       #
-      # TARGET (see docs/SIGNING.md): cosign keyless via the OIDC token above —
+      # TARGET (see "The signing model" in the platform README): cosign keyless —
       #   cosign sign-blob --yes --bundle manifest.lock.json.bundle manifest.lock.json
       # and govctl verifies the certificate identity (issuer + this repo + this
       # workflow) before the signature. No long-lived key to rotate or leak.

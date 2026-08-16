@@ -54,7 +54,7 @@ jobs:
             missing=1
           fi
           if [ "$missing" -eq 1 ]; then
-            echo "::error::governance cannot run until these are configured — see docs/PILOT.md"
+            echo "::error::governance cannot run until these are configured — see the platform README"
             exit 1
           fi
           echo "configuration present"

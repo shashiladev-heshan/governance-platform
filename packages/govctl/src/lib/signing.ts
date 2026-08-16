@@ -42,7 +42,7 @@ export interface DevKeypair {
 /**
  * Dev signer: ed25519 keypair on disk. Stands in for cosign keyless until the
  * registry's GitHub Actions release pipeline exists, so the full trust chain is
- * testable offline today. See docs/SIGNING.md for the cosign migration.
+ * testable offline today. See "The signing model" in the README for the migration.
  */
 export function generateKeypair(keyId: string): DevKeypair {
   const { publicKey, privateKey } = generateKeyPairSync('ed25519');
@@ -162,7 +162,8 @@ export function verifyCosignBundle(): VerifyResult {
   return {
     ok: false,
     reason:
-      'cosign keyless verification is not implemented yet — see docs/SIGNING.md. Refusing to trust a cosign bundle rather than skipping the check.',
+      'cosign keyless verification is not implemented yet — see "The signing model" in the README. ' +
+      'Refusing to trust a cosign bundle rather than skipping the check.',
   };
 }
 

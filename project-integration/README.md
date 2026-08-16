@@ -10,7 +10,7 @@ are the advisory layer. The files here are the authoritative one.
 | `.github/workflows/governance-verify.yml` | `.github/workflows/` | The four required checks |
 | `CODEOWNERS` | `.github/CODEOWNERS` | Protects the workflow, `governance.json` and `.governance/` |
 
-Then apply the branch ruleset — [docs/RULESET-SETUP.md](../docs/RULESET-SETUP.md).
+Then apply the branch ruleset — [Branch ruleset setup](../README.md#branch-ruleset-setup).
 Until that exists, the workflow runs but nothing is required, and nothing is
 actually enforced.
 
@@ -47,4 +47,4 @@ being a path worth defending against.
 
 Without Enterprise Cloud, each repo gets its own copy and CODEOWNERS protects it.
 Audit periodically with the script in
-[docs/RULESET-SETUP.md](../docs/RULESET-SETUP.md#4-org-level-rollout).
+[Org-level rollout](../README.md#org-level-rollout).
