@@ -28,6 +28,7 @@ program
   .option('--tag <version>', 'pin a specific release tag (default: latest)')
   .option('--force', 'overwrite an existing governance.json')
   .option('--skip-hooks', 'do not install lefthook.yml')
+  .option('--skip-ci', 'do not write the CI workflow or CODEOWNERS')
   .option('--json', 'machine-readable output')
   .action(
     run(
@@ -37,6 +38,7 @@ program
         tag?: string;
         force?: boolean;
         skipHooks?: boolean;
+        skipCi?: boolean;
         json?: boolean;
       }) =>
         cmdInit({
@@ -46,6 +48,7 @@ program
           ...(opts.tag ? { version: opts.tag } : {}),
           ...(opts.force ? { force: true } : {}),
           ...(opts.skipHooks ? { skipHooks: true } : {}),
+          ...(opts.skipCi ? { skipCi: true } : {}),
           ...(opts.json ? { json: true } : {}),
         }),
     ),

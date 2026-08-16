@@ -288,3 +288,77 @@ describe('prettierignore maintenance', () => {
     assert.match(ignore, /^governance\.json$/m);
   });
 });
+
+describe('CI wiring from the registry', () => {
+  let world;
+  before(() => {
+    world = makeWorld({ tier: 'corporate' });
+  });
+  after(() => world.cleanup());
+
+  test('init writes a workflow stub that calls the shared reusable workflow', () => {
+    const workflow = readFileSync(
+      join(world.project, '.github/workflows/governance.yml'),
+      'utf8',
+    );
+    // The point of the stub: the checks live in ONE place, so improving them is
+    // one edit rather than a pull request against every governed repo.
+    assert.match(workflow, /uses: shashiladev-heshan\/governance-platform\/\.github\/workflows\/governance-checks\.yml@main/);
+    assert.match(workflow, /secrets: inherit/);
+    assert.match(workflow, /run-lint: true/);
+    assert.match(workflow, /run-semantic: false/);
+    assert.ok(workflow.split('\n').length < 40, 'the stub stays small');
+  });
+
+  test('init writes CODEOWNERS covering the paths that could disable governance', () => {
+    const owners = readFileSync(join(world.project, '.github/CODEOWNERS'), 'utf8');
+    for (const path of ['/.github/workflows/', '/governance.json', '/.governance/']) {
+      assert.ok(owners.includes(path), `CODEOWNERS is missing ${path}`);
+    }
+    assert.match(owners, /@shashiladev-heshan/);
+  });
+
+  test('required check names carry the stub job id prefix', async () => {
+    const { requiredCheckNames } = await import('../dist/lib/ci.js');
+    const names = requiredCheckNames({
+      reusableWorkflow: 'x/y/.github/workflows/z.yml@main',
+      codeOwners: [],
+      runLint: true,
+      runSemantic: false,
+    });
+    // A ruleset requiring the bare names would never be satisfied.
+    assert.deepEqual(names, [
+      'governance / governance-integrity',
+      'governance / governance-lint',
+      'governance / governance-patterns',
+    ]);
+  });
+
+  test('--skip-ci leaves the project CI alone', () => {
+    const project = join(world.root, 'no-ci');
+    mkdirSync(project, { recursive: true });
+    const result = govctl(
+      ['init', '--registry', world.registry, '--tier', 'corporate', '--tag', world.version, '--skip-ci'],
+      { cwd: project, env: world.env },
+    );
+    assert.equal(result.code, 0, result.stdout + result.stderr);
+    assert.equal(existsSync(join(project, '.github/workflows/governance.yml')), false);
+  });
+
+  test('an existing workflow is never silently replaced', () => {
+    const project = join(world.root, 'has-workflow');
+    mkdirSync(join(project, '.github/workflows'), { recursive: true });
+    writeFileSync(join(project, '.github/workflows/governance.yml'), 'name: mine\n');
+
+    const result = govctl(
+      ['init', '--registry', world.registry, '--tier', 'corporate', '--tag', world.version],
+      { cwd: project, env: world.env },
+    );
+    assert.equal(result.code, 0, result.stdout + result.stderr);
+    assert.match(result.stdout, /already exists — left alone/);
+    assert.equal(
+      readFileSync(join(project, '.github/workflows/governance.yml'), 'utf8').trim(),
+      'name: mine',
+    );
+  });
+});

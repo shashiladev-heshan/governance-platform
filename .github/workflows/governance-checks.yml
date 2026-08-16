@@ -1,0 +1,181 @@
+name: governance-checks
+
+# The governance checks, defined ONCE and called by every governed project.
+#
+# Projects get a six-line stub (written by `govctl init`) that calls this file,
+# instead of their own 130-line copy. Improving the checks means editing this
+# file, not opening a pull request against forty repositories.
+#
+# Caller-side gotcha: with a reusable workflow the status check names become
+#   "<stub-job-id> / <job-name>"   e.g.  "governance / governance-integrity"
+# so a branch ruleset must require THOSE names, not the bare ones.
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        type: string
+        default: "20"
+      run-lint:
+        description: "Run eslint/prettier. Turn off for projects that have neither."
+        type: boolean
+        default: true
+      run-semantic:
+        description: "Run the AI reviewer. Needs ANTHROPIC_API_KEY."
+        type: boolean
+        default: true
+      govctl-version:
+        type: string
+        default: ""
+      validator-version:
+        type: string
+        default: ""
+
+jobs:
+  integrity:
+    name: governance-integrity
+    runs-on: ubuntu-latest
+    steps:
+      # persist-credentials: false matters. By default checkout writes
+      #   http.https://github.com/.extraheader = AUTHORIZATION: basic <GITHUB_TOKEN>
+      # into the repo's git config, which applies to EVERY github.com URL and
+      # takes precedence over the registry credentials below — so govctl's clone
+      # of the registry is attempted with a token scoped to this repo only.
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          registry-url: ${{ vars.NPM_REGISTRY_URL || 'https://npm.pkg.github.com' }}
+          # Without `scope`, setup-node makes this the DEFAULT registry and every
+          # public dependency is looked up there too, and 404s.
+          scope: ${{ vars.NPM_SCOPE || '@shashiladev-heshan' }}
+
+      - name: Install govctl
+        run: npm install -g @shashiladev-heshan/govctl@${{ inputs.govctl-version || vars.GOVCTL_VERSION || 'latest' }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_READ_TOKEN }}
+
+      - name: Authenticate git to the registry
+        run: |
+          if [ -n "${TOKEN:-}" ]; then
+            git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
+          fi
+        env:
+          TOKEN: ${{ secrets.GOVERNANCE_REPO_TOKEN }}
+
+      - name: Configure trust root
+        run: |
+          mkdir -p "$RUNNER_TEMP/govctl"
+          printf '%s' "$TRUST_ROOT" > "$RUNNER_TEMP/govctl/trust.json"
+          echo "GOVCTL_TRUST_ROOT=$RUNNER_TEMP/govctl/trust.json" >> "$GITHUB_ENV"
+        env:
+          TRUST_ROOT: ${{ vars.GOVERNANCE_TRUST_ROOT }}
+
+      # --remote re-fetches the canonical manifest from the registry and ignores
+      # the copy in the PR. --strict makes an unverifiable signature fatal.
+      - name: Verify governance integrity
+        run: govctl verify --remote --strict
+
+  lint:
+    name: governance-lint
+    needs: integrity
+    if: ${{ inputs.run-lint }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+      - run: npm ci
+      - run: npx eslint .
+      - run: npx prettier --check .
+
+  patterns:
+    name: governance-patterns
+    needs: integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pipx install semgrep
+
+      # Rules come from .governance/, which integrity has just proved matches
+      # the registry byte for byte.
+      - name: Run governance pattern rules
+        run: |
+          semgrep scan \
+            --config .governance/policies/semgrep/ \
+            --error \
+            --sarif --output semgrep.sarif \
+            --metrics=off
+
+      # Requires GitHub Advanced Security on private repos. The semgrep exit code
+      # above is the gate — this upload is a convenience, so it never fails the job.
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        continue-on-error: true
+        with:
+          sarif_file: semgrep.sarif
+          category: governance-patterns
+
+  semantic:
+    name: governance-semantic
+    needs: integrity
+    if: ${{ inputs.run-semantic }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          registry-url: ${{ vars.NPM_REGISTRY_URL || 'https://npm.pkg.github.com' }}
+          scope: ${{ vars.NPM_SCOPE || '@shashiladev-heshan' }}
+
+      - name: Install validator
+        run: npm install -g @shashiladev-heshan/governance-validator@${{ inputs.validator-version || vars.VALIDATOR_VERSION || 'latest' }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_READ_TOKEN }}
+
+      - name: Produce PR diff
+        run: |
+          git diff --unified=3 \
+            "origin/${{ github.event.pull_request.base.ref }}...HEAD" > pr.diff
+          wc -l pr.diff
+
+      # A missing key fails the check rather than silently degrading: otherwise
+      # deleting one secret quietly disables semantic review everywhere.
+      - name: Semantic review
+        run: |
+          if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+            echo "::error::ANTHROPIC_API_KEY is not configured — the semantic check cannot run."
+            exit 1
+          fi
+          governance-validator review \
+            --diff pr.diff \
+            --governance .governance \
+            --config governance.json \
+            --json-out verdict.json \
+            --markdown-out verdict.md
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+          LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+          LANGFUSE_HOST: ${{ vars.LANGFUSE_HOST }}
+
+      - name: Post review comment
+        if: always() && hashFiles('verdict.md') != ''
+        run: gh pr comment "${{ github.event.pull_request.number }}" --body-file verdict.md
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Apply gate
+        run: governance-validator gate --verdict verdict.json

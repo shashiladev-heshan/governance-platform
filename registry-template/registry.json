@@ -2,5 +2,11 @@
   "name": "allion-governance",
   "description": "Source of truth for coding standards, patterns, policies and Claude Code skills",
   "governed": ["skills", "policies", "tiers"],
-  "notes": "Only these directories are hash-governed and synced into projects. Lint/format/tsconfig are distributed as versioned npm packages instead, because they must be resolvable by tooling that knows nothing about govctl."
+  "notes": "Only these directories are hash-governed and synced into projects. Lint/format/tsconfig are distributed as versioned npm packages instead, because they must be resolvable by tooling that knows nothing about govctl.",
+  "ci": {
+    "reusableWorkflow": "shashiladev-heshan/governance-platform/.github/workflows/governance-checks.yml@main",
+    "codeOwners": ["@shashiladev-heshan"],
+    "runLint": true,
+    "runSemantic": false
+  }
 }

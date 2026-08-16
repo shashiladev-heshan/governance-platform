@@ -32,6 +32,14 @@ import {
   installIgnoreFile,
   installLefthook,
 } from '../lib/lefthook.js';
+import {
+  CODEOWNERS_PATH,
+  WORKFLOW_PATH,
+  installCiFiles,
+  readCiConfig,
+  requiredCheckNames,
+  type CiConfig,
+} from '../lib/ci.js';
 import { color, log } from '../lib/log.js';
 import { verifyProject, type ProjectVerifyResult } from '../verify.js';
 
@@ -42,6 +50,7 @@ export interface InitOptions {
   version?: string;
   force?: boolean;
   skipHooks?: boolean;
+  skipCi?: boolean;
   json?: boolean;
 }
 
@@ -107,13 +116,23 @@ export async function cmdInit(options: InitOptions): Promise<number> {
       log.ok(`${ignored} .prettierignore (${IGNORED_PATHS.join(", ")})`);
     }
 
+    // CI wiring comes from the registry, so onboarding a project does not
+    // involve hand-copying a workflow that then drifts.
+    const ci = options.skipCi ? null : await readCiConfig(fetched.dir);
+    if (ci) {
+      const written = await installCiFiles(projectRoot, ci, options.force ?? false);
+      if (written.workflow === 'written') log.ok(`wrote ${WORKFLOW_PATH}`);
+      else log.warn(`${WORKFLOW_PATH} already exists — left alone (use --force to replace)`);
+      if (written.codeowners === 'written') log.ok(`wrote ${CODEOWNERS_PATH}`);
+    }
+
     const result = await verifyProject({ projectRoot, remote: false, strict: false });
     printVerify(result, options.json ?? false);
 
     if (!options.json) {
       log.blank();
       log.ok(`initialized governance ${color.bold(version)} (tier: ${color.bold(options.tier)})`);
-      printNextSteps();
+      printNextSteps(ci);
     }
     return result.ok ? 0 : 1;
   } finally {
@@ -451,11 +470,18 @@ function fixHints(result: ProjectVerifyResult): string[] {
   return hints.length ? hints : ["govctl status   (then 'govctl restore' if content drifted)"];
 }
 
-function printNextSteps(): void {
+function printNextSteps(ci: CiConfig | null): void {
   log.blank();
   log.info(color.bold('next steps'));
-  log.info('  1. commit governance.json, .governance/ and lefthook.yml');
-  log.info('  2. copy .github/workflows/governance-verify.yml + CODEOWNERS from the registry');
-  log.info('  3. apply the branch ruleset (see docs/RULESET-SETUP.md) so the checks are required');
-  log.info('  4. extend @shashiladev-heshan/eslint-config in your eslint config');
+  log.info('  1. commit everything written above');
+  log.info('  2. npx lefthook install   (or `npm i -D lefthook` — its postinstall does it)');
+
+  if (ci) {
+    log.info('  3. make the checks required in a branch ruleset:');
+    for (const name of requiredCheckNames(ci)) log.info(`       ${name}`);
+    log.info(color.dim('     (names are prefixed by the stub job id — that is expected)'));
+  } else {
+    log.info('  3. add a governance workflow and CODEOWNERS, then require the checks');
+    log.warn('     the registry declares no "ci" block, so none were written for you');
+  }
 }
