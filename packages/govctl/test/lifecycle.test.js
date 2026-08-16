@@ -385,7 +385,8 @@ describe('assistant wiring', () => {
     const claudeMd = readFileSync(join(world.project, 'CLAUDE.md'), 'utf8');
     assert.match(claudeMd, /BEGIN GOVERNED SKILLS/);
     assert.match(claudeMd, /END GOVERNED SKILLS/);
-    assert.match(claudeMd, /Never edit `\.governance\/`/);
+    assert.match(claudeMd, /Do not edit `\.governance\/`/);
+    assert.match(claudeMd, /are not verified/);
   });
 
   test('Copilot gets glob-scoped instruction files plus a repo-wide index', () => {

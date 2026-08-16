@@ -1,6 +1,6 @@
 {
   "name": "@shashiladev-heshan/govctl",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Governance CLI — sync, verify, and restore centrally managed skills, policies and configs",
   "license": "UNLICENSED",
   "type": "module",
@@ -35,7 +35,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@shashiladev-heshan/policy-core": "^0.2.0",
+    "@shashiladev-heshan/policy-core": "^0.2.1",
     "commander": "^12.1.0",
     "yaml": "^2.6.1",
     "zod": "^3.24.1"

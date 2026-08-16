@@ -205,9 +205,11 @@ function renderCopilotIndex(skills: GovernedSkill[]): string {
   lines.push(
     '---',
     '',
-    'Do not edit these files, or anything under `.governance/`. They are generated from',
-    'the governance registry and any local change is rejected at merge time. To propose a',
-    'change to a standard, open a pull request against the governance registry.',
+    'These instruction files are generated from `.governance/`, which is verified by hash',
+    'on every pull request. Editing them does not change what merges — it only makes the',
+    'suggestions disagree with the rules that are actually enforced, and `govctl sync`',
+    'overwrites them anyway. To change a standard, open a pull request against the',
+    'governance registry.',
     '',
   );
   return lines.join('\n');
@@ -232,9 +234,13 @@ async function updateClaudeMd(
     '',
     ...skills.map((s) => `- **${s.name}** — ${s.description}`),
     '',
-    'Never edit `.governance/`, `.claude/skills/` or `.github/instructions/` — they are',
-    'generated from the governance registry, verified by hash on every pull request, and',
-    'local edits are rejected at merge time. Run `govctl sync` to update them.',
+    'Do not edit `.governance/`. It is verified by hash on every pull request and local',
+    'edits are rejected at merge time.',
+    '',
+    '`.claude/skills/` and `.github/instructions/` are generated projections of it. They',
+    'are not verified, so editing them changes nothing about what merges — it only makes',
+    'the assistant\'s advice disagree with the rules that are actually enforced. Both are',
+    'overwritten by `govctl sync`.',
     '',
     END,
   ].join('\n');
