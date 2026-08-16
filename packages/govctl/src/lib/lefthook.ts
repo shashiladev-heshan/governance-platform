@@ -175,12 +175,56 @@ export async function installIgnoreFile(
   return 'appended';
 }
 
+/**
+ * Is this lefthook.yml the stub that `lefthook install` writes when it finds no
+ * config — i.e. entirely comments, no active jobs?
+ *
+ * This matters because the `lefthook` npm package runs `lefthook install` from a
+ * postinstall hook. `npm i -D lefthook` therefore creates a stub config before
+ * `govctl init` ever runs, and treating that stub as "a file the developer wrote"
+ * means the governance hooks are silently never installed.
+ */
+export function isStubConfig(content: string): boolean {
+  const meaningful = content
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith('#'));
+  return meaningful.length === 0;
+}
+
+export type LefthookInstallResult = 'written' | 'replaced-stub' | 'skipped';
+
 export async function installLefthook(
   projectRoot: string,
   force = false,
-): Promise<'written' | 'skipped'> {
+): Promise<LefthookInstallResult> {
   const path = join(projectRoot, LEFTHOOK_FILE);
-  if (existsSync(path) && !force) return 'skipped';
-  await writeFile(path, renderLefthook(detectTooling(projectRoot)), 'utf8');
-  return 'written';
+  const rendered = renderLefthook(detectTooling(projectRoot));
+
+  if (!existsSync(path)) {
+    await writeFile(path, rendered, 'utf8');
+    return 'written';
+  }
+
+  if (isStubConfig(await readFile(path, 'utf8'))) {
+    await writeFile(path, rendered, 'utf8');
+    return 'replaced-stub';
+  }
+
+  if (force) {
+    await writeFile(path, rendered, 'utf8');
+    return 'written';
+  }
+
+  return 'skipped';
+}
+
+/** The block to paste when we refuse to touch an existing config. */
+export function governanceHookSnippet(): string {
+  return renderLefthook({ eslint: false, prettier: false })
+    .split('\n')
+    .filter((line) => !line.startsWith('#'))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }

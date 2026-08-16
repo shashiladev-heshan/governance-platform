@@ -26,7 +26,7 @@ import {
   writeConfig,
   type GovernanceConfig,
 } from '../lib/config.js';
-import { installIgnoreFile, installLefthook } from '../lib/lefthook.js';
+import { governanceHookSnippet, installIgnoreFile, installLefthook } from '../lib/lefthook.js';
 import { color, log } from '../lib/log.js';
 import { verifyProject, type ProjectVerifyResult } from '../verify.js';
 
@@ -77,9 +77,21 @@ export async function cmdInit(options: InitOptions): Promise<number> {
     await writeConfig(projectRoot, config);
 
     if (!options.skipHooks) {
-      const hooks = await installLefthook(projectRoot);
-      if (hooks === 'skipped') {
-        log.warn(`lefthook.yml already exists — left untouched. Merge in the governance hooks manually.`);
+      const hooks = await installLefthook(projectRoot, options.force ?? false);
+      if (hooks === 'replaced-stub') {
+        log.ok('replaced the empty lefthook.yml stub with the governance hooks');
+      } else if (hooks === 'skipped') {
+        log.blank();
+        log.warn('lefthook.yml already exists and has jobs in it — leaving it alone.');
+        log.warn('The governance hooks are NOT installed. Add this to it:');
+        log.blank();
+        log.info(
+          governanceHookSnippet()
+            .split('\n')
+            .map((line) => `    ${line}`)
+            .join('\n'),
+        );
+        log.blank();
       }
     }
 

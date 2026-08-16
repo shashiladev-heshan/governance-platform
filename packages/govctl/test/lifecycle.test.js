@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { govctl, makeWorld, cutRelease, readJson, writeJson, appendTo } from './helpers.js';
-import { detectTooling, renderLefthook } from '../dist/lib/lefthook.js';
+import { detectTooling, isStubConfig, renderLefthook } from '../dist/lib/lefthook.js';
 
 describe('onboarding', () => {
   let world;
@@ -193,5 +193,61 @@ describe('release lifecycle', () => {
     });
     assert.equal(result.code, 0, result.stdout + result.stderr);
     assert.equal(govctl(['sync'], { cwd: world.project, env: world.env }).code, 0);
+  });
+});
+
+describe('lefthook stub handling', () => {
+  let world;
+  before(() => {
+    world = makeWorld({ tier: 'corporate' });
+  });
+  after(() => world.cleanup());
+
+  const LEFTHOOK_STUB = `# EXAMPLE USAGE:
+#
+# pre-commit:
+#   parallel: true
+#   jobs:
+#     - run: yarn eslint {staged_files}
+`;
+
+  test('the stub written by `lefthook install` is recognised as empty', () => {
+    assert.equal(isStubConfig(LEFTHOOK_STUB), true);
+    assert.equal(isStubConfig('pre-commit:\n  commands:\n    x:\n      run: true\n'), false);
+    assert.equal(isStubConfig('# only a comment\n\n   \n'), true);
+  });
+
+  test('init replaces the stub instead of silently skipping it', async () => {
+    // `npm i -D lefthook` runs `lefthook install` from a postinstall hook, which
+    // writes that stub — so it is almost always there before govctl runs.
+    const project = join(world.root, 'stubbed');
+    mkdirSync(project, { recursive: true });
+    writeFileSync(join(project, 'lefthook.yml'), LEFTHOOK_STUB);
+
+    const result = govctl(
+      ['init', '--registry', world.registry, '--tier', 'corporate', '--tag', world.version],
+      { cwd: project, env: world.env },
+    );
+    assert.equal(result.code, 0, result.stdout + result.stderr);
+    assert.match(result.stdout, /replaced the empty lefthook.yml stub/);
+    assert.match(readFileSync(join(project, 'lefthook.yml'), 'utf8'), /govctl verify/);
+  });
+
+  test('a real config is never overwritten, but the snippet is printed', () => {
+    const project = join(world.root, 'has-hooks');
+    mkdirSync(project, { recursive: true });
+    writeFileSync(
+      join(project, 'lefthook.yml'),
+      'pre-commit:\n  commands:\n    mine:\n      run: echo hello\n',
+    );
+
+    const result = govctl(
+      ['init', '--registry', world.registry, '--tier', 'corporate', '--tag', world.version],
+      { cwd: project, env: world.env },
+    );
+    assert.equal(result.code, 0, result.stdout + result.stderr);
+    assert.match(result.stdout, /governance hooks are NOT installed/);
+    assert.match(result.stdout, /govctl verify/);
+    assert.match(readFileSync(join(project, 'lefthook.yml'), 'utf8'), /echo hello/);
   });
 });
