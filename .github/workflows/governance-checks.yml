@@ -36,6 +36,32 @@ jobs:
     name: governance-integrity
     runs-on: ubuntu-latest
     steps:
+      # A repo that was onboarded but never configured fails deep inside npm with
+      # "401 Unauthorized ... authentication token not provided", which says
+      # nothing about which setting is missing. Check first, and say exactly what
+      # to run. This is the first thing every new repo hits.
+      - name: Preflight — required configuration
+        run: |
+          missing=0
+          if [ -z "${NPM_READ_TOKEN:-}" ]; then
+            echo "::error::secret NPM_READ_TOKEN is not set on this repository"
+            echo "  gh secret set NPM_READ_TOKEN --repo \$GITHUB_REPOSITORY --body \"\$(gh auth token)\""
+            missing=1
+          fi
+          if [ -z "${TRUST_ROOT:-}" ]; then
+            echo "::error::variable GOVERNANCE_TRUST_ROOT is not set on this repository"
+            echo "  gh variable set GOVERNANCE_TRUST_ROOT --repo \$GITHUB_REPOSITORY --body \"\$(cat ~/.govctl/trust.json)\""
+            missing=1
+          fi
+          if [ "$missing" -eq 1 ]; then
+            echo "::error::governance cannot run until these are configured — see docs/PILOT.md"
+            exit 1
+          fi
+          echo "configuration present"
+        env:
+          NPM_READ_TOKEN: ${{ secrets.NPM_READ_TOKEN }}
+          TRUST_ROOT: ${{ vars.GOVERNANCE_TRUST_ROOT }}
+
       # persist-credentials: false matters. By default checkout writes
       #   http.https://github.com/.extraheader = AUTHORIZATION: basic <GITHUB_TOKEN>
       # into the repo's git config, which applies to EVERY github.com URL and
