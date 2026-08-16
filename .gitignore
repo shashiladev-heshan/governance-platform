@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.tsbuildinfo
+signing-key*.json
+pilot/
+.npmrc
+.DS_Store

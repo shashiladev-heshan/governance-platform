@@ -1,0 +1,52 @@
+name: validate-registry
+
+# Every change to governed content is checked before it can be released:
+# the policy must resolve for every tier, and the committed manifest must
+# already match the files on disk.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: ${{ vars.NPM_REGISTRY_URL || 'https://registry.npmjs.org' }}
+
+      - name: Install govctl
+        run: npm install -g @shashiladev-heshan/govctl@${{ vars.GOVCTL_VERSION || 'latest' }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_READ_TOKEN }}
+
+      - name: Validate policy and tiers
+        run: govctl policy validate --dir .
+
+      - name: Manifest is up to date
+        run: govctl manifest check --dir .
+
+      - name: Semgrep rules parse
+        run: |
+          pipx install semgrep
+          semgrep --validate --config policies/semgrep/
+
+      # Fixtures live outside policies/ on purpose: policies/ is governed content
+      # and gets synced into every project, where stray .ts files would be
+      # type-checked and linted by that project's tooling.
+      - name: Semgrep rules match what they claim to
+        run: semgrep --test --config policies/semgrep/ tests/semgrep/
+
+      - name: Skills have frontmatter
+        run: |
+          fail=0
+          for f in skills/*/SKILL.md; do
+            head -1 "$f" | grep -q '^---$' || { echo "missing frontmatter: $f"; fail=1; }
+            grep -q '^name:' "$f" || { echo "missing name: $f"; fail=1; }
+            grep -q '^description:' "$f" || { echo "missing description: $f"; fail=1; }
+          done
+          exit $fail

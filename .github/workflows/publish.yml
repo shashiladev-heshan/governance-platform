@@ -1,0 +1,87 @@
+name: publish
+
+# Publishes @shashiladev-heshan/policy-core, @shashiladev-heshan/govctl and @shashiladev-heshan/governance-validator.
+#
+# These packages are the verifier. Everything else in the platform trusts them, so
+# the pipeline is deliberately boring: tests must pass, versions must not already
+# exist, and publish order is fixed because govctl resolves @shashiladev-heshan/policy-core from
+# the registry rather than from the workspace.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (e.g. 0.2.0)"
+        required: true
+        type: string
+      dry_run:
+        description: "Pack and validate without publishing"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          # GitHub Packages. For npmjs private orgs use https://registry.npmjs.org
+          # and an NPM_TOKEN instead — see docs/PUBLISHING.md.
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@org"
+
+      - run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - name: Set version across the workspace
+        run: |
+          npm version "${{ inputs.version }}" --no-git-tag-version --workspaces
+          # Internal dependency ranges must move with it, or a fresh install of
+          # govctl pulls an old policy-core and the two disagree about policy.
+          node scripts/sync-internal-deps.mjs "${{ inputs.version }}"
+          npm install --package-lock-only
+
+      - name: Refuse to republish an existing version
+        if: ${{ !inputs.dry_run }}
+        run: |
+          for pkg in @shashiladev-heshan/policy-core @shashiladev-heshan/govctl @shashiladev-heshan/governance-validator; do
+            if npm view "$pkg@${{ inputs.version }}" version >/dev/null 2>&1; then
+              echo "$pkg@${{ inputs.version }} already exists — versions are immutable"
+              exit 1
+            fi
+          done
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            bash scripts/publish.sh
+          else
+            bash scripts/publish.sh --yes
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag and push
+        if: ${{ !inputs.dry_run }}
+        run: |
+          git config user.name  "governance-release[bot]"
+          git config user.email "platform@alliontechnologies.com"
+          git add -A
+          git commit -m "chore(release): tooling v${{ inputs.version }}"
+          git tag -a "tooling-v${{ inputs.version }}" -m "tooling v${{ inputs.version }}"
+          git push origin HEAD:${{ github.ref_name }}
+          git push origin "tooling-v${{ inputs.version }}"

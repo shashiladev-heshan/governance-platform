@@ -1,0 +1,31 @@
+schemaVersion: 1
+tier: startup
+description: >
+  Advisory-first tier for startup client work. Findings are reported on every PR
+  and teach the pattern, but only the non-negotiables block a merge — the ones
+  that are expensive or impossible to fix later.
+
+defaults:
+  # Everything not named below is advisory in this tier. `overridable` is left to
+  # the rule definition, same as every other tier.
+  enforcement: warn
+
+staleness:
+  maxReleasesBehind: 6
+
+rules:
+  # The four that block regardless of tier. Secrets and injection are incidents,
+  # not style; scattered env reads and swallowed errors are the two things that
+  # make a handover or an incident postmortem impossible.
+  no-hardcoded-secrets:
+    enforcement: block
+    overridable: false
+  no-raw-sql-interpolation:
+    enforcement: block
+    overridable: false
+  config-module-only:
+    enforcement: block
+    overridable: false
+  no-swallowed-errors:
+    enforcement: warn
+    overridable: false

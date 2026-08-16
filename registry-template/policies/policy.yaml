@@ -1,0 +1,138 @@
+schemaVersion: 1
+
+# Base policy: every governed rule the org enforces, with its default severity
+# and enforcement. Tier overlays (tiers/*.yaml) adjust enforcement per client
+# class; project overrides may only weaken rules marked `overridable: true`.
+#
+# `detectedBy` is scoping, not enforcement:
+#   semgrep -> deterministic, runs before the agent and never costs tokens
+#   agent   -> semantic judgement the linter cannot make
+#   eslint  -> covered by @shashiladev-heshan/eslint-config
+
+defaults:
+  severity: warn
+  enforcement: warn
+  overridable: false
+
+rules:
+  # --- NestJS structure -----------------------------------------------------
+  - id: thin-controllers
+    title: Controllers delegate to services and contain no business logic
+    skill: nestjs-conventions
+    severity: error
+    enforcement: block
+    detectedBy: [agent]
+    rationale: >
+      Business logic in controllers cannot be reused by jobs, CLI entrypoints or
+      other controllers, and it forces HTTP concerns into unit tests.
+
+  - id: dto-validation
+    title: Every request body is a class-validator DTO bound by a ValidationPipe
+    skill: nestjs-conventions
+    severity: error
+    enforcement: block
+    detectedBy: [semgrep, agent]
+    rationale: >
+      Untyped request bodies are the single most common source of runtime
+      failures and injection surface in our Nest services.
+
+  - id: config-module-only
+    title: Environment variables are read only through the typed config module
+    skill: nestjs-conventions
+    severity: error
+    enforcement: block
+    detectedBy: [semgrep]
+    rationale: >
+      Scattered process.env reads hide required configuration, break in
+      containers, and make client handover painful. Non-negotiable in every tier.
+
+  - id: layered-imports
+    title: Controllers must not import repositories or ORM entities directly
+    skill: nestjs-conventions
+    severity: error
+    enforcement: block
+    overridable: true
+    detectedBy: [agent]
+    rationale: >
+      Skipping the service layer couples transport to persistence and makes the
+      data model impossible to change without touching HTTP code.
+
+  # --- Error handling -------------------------------------------------------
+  - id: no-swallowed-errors
+    title: Never catch an error without handling, rethrowing or failing the operation
+    skill: error-handling
+    severity: error
+    enforcement: block
+    detectedBy: [semgrep, agent]
+    rationale: >
+      A swallowed error turns a loud failure into silent data corruption. Logging
+      and continuing is swallowing unless the fallback path is deliberate.
+
+  - id: typed-domain-errors
+    title: Throw typed domain errors, not bare Error or strings
+    skill: error-handling
+    severity: warn
+    enforcement: warn
+    overridable: true
+    detectedBy: [agent]
+    rationale: >
+      Typed errors let filters map failures to HTTP status codes in one place
+      instead of scattering try/catch through controllers.
+
+  - id: no-error-detail-leak
+    title: Internal error details never reach the client response
+    skill: error-handling
+    severity: error
+    enforcement: block
+    detectedBy: [agent]
+    rationale: >
+      Stack traces, driver messages and SQL fragments in responses are an
+      information-disclosure finding in every client security review we have had.
+
+  # --- API design -----------------------------------------------------------
+  - id: api-versioned-routes
+    title: Public routes are versioned (/v1/...) from the first commit
+    skill: api-design-patterns
+    severity: warn
+    enforcement: warn
+    overridable: true
+    detectedBy: [agent]
+    rationale: Retrofitting versioning onto a live client integration is a breaking change.
+
+  - id: api-consistent-pagination
+    title: Collection endpoints use the standard cursor pagination envelope
+    skill: api-design-patterns
+    severity: warn
+    enforcement: warn
+    overridable: true
+    detectedBy: [agent]
+    rationale: >
+      Mixed pagination shapes across services force every consumer to write
+      per-endpoint client code.
+
+  # --- Security baseline ----------------------------------------------------
+  - id: no-hardcoded-secrets
+    title: No credentials, tokens or keys in source
+    skill: security-baseline
+    severity: error
+    enforcement: block
+    detectedBy: [semgrep]
+    rationale: A committed secret is a rotation incident, in every tier, always.
+
+  - id: no-raw-sql-interpolation
+    title: No string interpolation into SQL — use parameterised queries
+    skill: security-baseline
+    severity: error
+    enforcement: block
+    detectedBy: [semgrep, agent]
+    rationale: Direct injection risk; the ORM's parameter binding is never harder to use.
+
+  - id: authz-on-mutations
+    title: Every mutating route carries an explicit authorisation guard
+    skill: security-baseline
+    severity: error
+    enforcement: block
+    detectedBy: [agent]
+    rationale: >
+      Authentication is not authorisation. A route that only checks "is logged in"
+      lets any tenant mutate any other tenant's data.

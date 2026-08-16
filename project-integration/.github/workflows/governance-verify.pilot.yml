@@ -1,0 +1,156 @@
+name: governance (pilot)
+
+# Pilot variant of governance-verify.yml, for use BEFORE the private npm registry
+# exists. Identical checks; the only difference is how the tooling gets installed:
+# this builds govctl and the validator from a checkout of the governance repo
+# instead of `npm install -g @shashiladev-heshan/govctl`.
+#
+# Once @shashiladev-heshan/govctl is published, delete this file and use governance-verify.yml.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: governance-pilot-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  GOVERNANCE_REPO: ${{ vars.GOVERNANCE_REPO }} # e.g. your-org/governance
+  GOVERNANCE_REF: ${{ vars.GOVERNANCE_TOOLING_REF || 'main' }}
+
+jobs:
+  integrity:
+    name: governance-integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out governance tooling
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.GOVERNANCE_REPO }}
+          ref: ${{ env.GOVERNANCE_REF }}
+          path: .governance-tooling
+          token: ${{ secrets.GOVERNANCE_REPO_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build govctl
+        run: |
+          cd .governance-tooling
+          npm ci
+          npm run build
+          mkdir -p "$RUNNER_TEMP/bin"
+          printf '#!/usr/bin/env bash\nexec node "%s/packages/govctl/dist/index.js" "$@"\n' "$PWD" \
+            > "$RUNNER_TEMP/bin/govctl"
+          chmod +x "$RUNNER_TEMP/bin/govctl"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      # govctl clones the registry over https; this lets it authenticate when the
+      # governance repo is private, without putting a token in governance.json.
+      - name: Authenticate git to the registry
+        run: |
+          git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
+        env:
+          TOKEN: ${{ secrets.GOVERNANCE_REPO_TOKEN }}
+
+      - name: Configure trust root
+        run: |
+          mkdir -p "$RUNNER_TEMP/govctl"
+          printf '%s' "$TRUST_ROOT" > "$RUNNER_TEMP/govctl/trust.json"
+          echo "GOVCTL_TRUST_ROOT=$RUNNER_TEMP/govctl/trust.json" >> "$GITHUB_ENV"
+        env:
+          TRUST_ROOT: ${{ vars.GOVERNANCE_TRUST_ROOT }}
+
+      - name: Verify governance integrity
+        run: govctl verify --remote --strict
+
+  patterns:
+    name: governance-patterns
+    needs: integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pipx install semgrep
+      - name: Run governance pattern rules
+        run: |
+          semgrep scan \
+            --config .governance/policies/semgrep/ \
+            --error --metrics=off
+
+  semantic:
+    name: governance-semantic
+    needs: integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check out governance tooling
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.GOVERNANCE_REPO }}
+          ref: ${{ env.GOVERNANCE_REF }}
+          path: .governance-tooling
+          token: ${{ secrets.GOVERNANCE_REPO_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build validator
+        run: |
+          cd .governance-tooling
+          npm ci
+          npm run build
+          mkdir -p "$RUNNER_TEMP/bin"
+          printf '#!/usr/bin/env bash\nexec node "%s/packages/validator-agent/dist/index.js" "$@"\n' "$PWD" \
+            > "$RUNNER_TEMP/bin/governance-validator"
+          chmod +x "$RUNNER_TEMP/bin/governance-validator"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Produce PR diff
+        run: |
+          git diff --unified=3 \
+            "origin/${{ github.event.pull_request.base.ref }}...HEAD" > pr.diff
+          wc -l pr.diff
+
+      # With no ANTHROPIC_API_KEY configured the validator runs in mock mode and
+      # reports no findings — useful for the first pilot run, where the point is
+      # to prove the plumbing before spending tokens. Set the secret to turn the
+      # real reviewer on.
+      - name: Semantic review
+        run: |
+          if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+            echo "::warning::ANTHROPIC_API_KEY not set — running the validator in mock mode"
+            export GOVERNANCE_AGENT_MODE=mock
+          fi
+          governance-validator review \
+            --diff pr.diff \
+            --governance .governance \
+            --config governance.json \
+            --json-out verdict.json \
+            --markdown-out verdict.md
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOVERNANCE_TRACE_STDOUT: "1"
+
+      - name: Post review comment
+        if: always() && hashFiles('verdict.md') != ''
+        run: gh pr comment "${{ github.event.pull_request.number }}" --body-file verdict.md
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Apply gate
+        run: governance-validator gate --verdict verdict.json

@@ -1,0 +1,95 @@
+name: release
+
+# The tag is created BY this workflow, never by a human.
+#
+# Why: govctl clones the registry at a tag and reads manifest.lock.json from that
+# tree, so the manifest and its signature must exist in the tagged commit. Tagging
+# first would leave the manifest describing a commit that no longer exists.
+#
+# Flow: validate -> generate manifest -> sign -> commit -> tag -> release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release tag (e.g. v0.2.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write # required for cosign keyless signing (see "Sign" below)
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: ${{ vars.NPM_REGISTRY_URL || 'https://registry.npmjs.org' }}
+
+      - name: Install govctl
+        run: npm install -g @shashiladev-heshan/govctl@${{ vars.GOVCTL_VERSION || 'latest' }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_READ_TOKEN }}
+
+      - name: Reject an existing tag
+        run: |
+          if git rev-parse "${{ inputs.version }}" >/dev/null 2>&1; then
+            echo "tag ${{ inputs.version }} already exists — releases are immutable"
+            exit 1
+          fi
+
+      - name: Validate policy and tiers
+        run: govctl policy validate --dir .
+
+      - name: Generate manifest
+        run: govctl manifest generate --dir . --version "${{ inputs.version }}"
+
+      # --- Sign -------------------------------------------------------------
+      # CURRENT: ed25519 dev signer, private key held as a repo secret. The public
+      # half is distributed to developers and CI in the govctl trust store.
+      #
+      # TARGET (see docs/SIGNING.md): cosign keyless via the OIDC token above —
+      #   cosign sign-blob --yes --bundle manifest.lock.json.bundle manifest.lock.json
+      # and govctl verifies the certificate identity (issuer + this repo + this
+      # workflow) before the signature. No long-lived key to rotate or leak.
+      - name: Sign manifest
+        run: |
+          printf '%s' "$SIGNING_KEY" > /tmp/signing-key.json
+          govctl sign --dir . --key /tmp/signing-key.json --signer dev-ed25519
+          rm -f /tmp/signing-key.json
+        env:
+          SIGNING_KEY: ${{ secrets.GOVERNANCE_SIGNING_KEY }}
+
+      - name: Commit, tag and push
+        run: |
+          git config user.name  "governance-release[bot]"
+          git config user.email "platform@alliontechnologies.com"
+          git add manifest.lock.json manifest.lock.json.bundle
+          git commit -m "chore(release): ${{ inputs.version }} manifest and signature"
+          git tag -a "${{ inputs.version }}" -m "governance ${{ inputs.version }}"
+          git push origin HEAD:${{ github.ref_name }}
+          git push origin "${{ inputs.version }}"
+
+      - name: Publish config packages
+        run: |
+          for pkg in configs/eslint configs/prettier configs/tsconfig; do
+            npm publish "$pkg" --access restricted || echo "skipped $pkg (version unchanged)"
+          done
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_PUBLISH_TOKEN }}
+
+      - name: Create GitHub release
+        run: |
+          gh release create "${{ inputs.version }}" \
+            manifest.lock.json manifest.lock.json.bundle \
+            --title "governance ${{ inputs.version }}" \
+            --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}

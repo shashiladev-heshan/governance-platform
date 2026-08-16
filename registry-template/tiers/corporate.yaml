@@ -1,0 +1,33 @@
+schemaVersion: 1
+tier: corporate
+description: >
+  Strict tier for corporate client engagements. Everything the base policy defines
+  is blocking unless named below; projects get a narrow staleness window because
+  these repos are audited.
+
+defaults:
+  # Applies to every rule NOT named in `rules` below.
+  enforcement: block
+  # `overridable` is deliberately NOT set here. Which rules a project may loosen
+  # is a property of the rule (policy.yaml), not of the client tier — otherwise
+  # a tier could silently contradict what the skill documentation promises.
+
+staleness:
+  maxReleasesBehind: 2
+
+rules:
+  # Style-of-API rules stay advisory even for corporate clients — they are
+  # judgement calls that should not block a hotfix at 2am.
+  api-versioned-routes:
+    enforcement: warn
+  api-consistent-pagination:
+    enforcement: warn
+
+  # Deliberately kept blocking and NOT overridable, restating the base intent so
+  # the tier file reads as a complete statement of what corporate means.
+  no-hardcoded-secrets:
+    enforcement: block
+    overridable: false
+  config-module-only:
+    enforcement: block
+    overridable: false

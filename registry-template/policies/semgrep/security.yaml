@@ -1,0 +1,54 @@
+rules:
+  - id: governance-no-hardcoded-secrets
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >-
+      Hardcoded credential in source. Read it from the config module; if this value was
+      ever real, rotate it. See skill security-baseline#no-hardcoded-secrets.
+    metadata:
+      governance-rule: no-hardcoded-secrets
+      skill: security-baseline
+    patterns:
+      - pattern-regex: >-
+          (sk_live_[A-Za-z0-9]{16,}|ghp_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN
+          (RSA |EC |OPENSSH )?PRIVATE KEY-----|postgres(ql)?://[^:\s]+:[^@\s]+@)
+
+  - id: governance-no-raw-sql-interpolation
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >-
+      SQL built by string interpolation. Use parameterised queries or the query
+      builder's bound parameters. See skill security-baseline#no-raw-sql-interpolation.
+    metadata:
+      governance-rule: no-raw-sql-interpolation
+      skill: security-baseline
+    patterns:
+      - pattern-either:
+          - pattern: $DB.query(`...${$X}...`, ...)
+          - pattern: $DB.query("..." + $X, ...)
+          - pattern: $QB.where(`...${$X}...`)
+          - pattern: $QB.andWhere(`...${$X}...`)
+          - pattern: $QB.orWhere(`...${$X}...`)
+
+  - id: governance-dto-validation-any-body
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >-
+      Request body typed as `any` — no runtime validation. Bind a class-validator DTO.
+      See skill nestjs-conventions#dto-validation.
+    metadata:
+      governance-rule: dto-validation
+      skill: nestjs-conventions
+    # Matches only an explicit `any` or a completely unannotated parameter. The
+    # second branch needs the pattern-not: without it this fires on every
+    # correctly typed `@Body() dto: CreateUserDto`, which is the fastest way to
+    # make developers stop believing the tool.
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $M(@Body() $P: any, ...) { ... }
+          - patterns:
+              - pattern: |
+                  $M(@Body() $P, ...) { ... }
+              - pattern-not: |
+                  $M(@Body() $P: $T, ...) { ... }

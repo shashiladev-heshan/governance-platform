@@ -1,0 +1,27 @@
+rules:
+  - id: governance-config-module-only
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >-
+      Direct process.env access outside the config module. Environment variables are
+      validated once at boot and read through ConfigService. See skill
+      nestjs-conventions#config-module-only.
+    metadata:
+      governance-rule: config-module-only
+      skill: nestjs-conventions
+    # Patterns are explicitly unanchored (`**/`) so they work the same in a
+    # single-service repo and in a monorepo where the module sits under
+    # apps/<svc>/src/config. Semgrepignore v2 anchors bare patterns to the repo
+    # root, which would silently stop excluding the config module.
+    paths:
+      exclude:
+        - "**/src/config/**"
+        - "**/src/main.ts"
+        - "**/*.spec.ts"
+        - "**/*.e2e-spec.ts"
+        - "**/test/**"
+        - "**/scripts/**"
+    patterns:
+      - pattern-either:
+          - pattern: process.env.$VAR
+          - pattern: process.env[$VAR]

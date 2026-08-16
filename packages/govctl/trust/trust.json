@@ -1,0 +1,5 @@
+{
+  "schemaVersion": 1,
+  "keys": [],
+  "_note": "Placeholder trust root shipped with govctl. It is the LAST resort in the lookup order ($GOVCTL_TRUST_ROOT, then ~/.govctl/trust.json, then this file), and it is deliberately empty: an empty store makes strict verification fail closed with a clear message rather than trusting anything. To ship a populated one, have your publish pipeline write the org's public keys into this file before packing — see docs/PUBLISHING.md."
+}

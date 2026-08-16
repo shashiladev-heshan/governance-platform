@@ -1,0 +1,18 @@
+{
+  "name": "allion-governance",
+  "owner": {
+    "name": "Allion Platform Team",
+    "email": "platform@alliontechnologies.com"
+  },
+  "metadata": {
+    "description": "Org-wide coding standards, patterns and governance tooling for Claude Code",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "governance",
+      "source": "./",
+      "description": "Governed skills (NestJS conventions, error handling, API design, security baseline), the governance review command, and the guard hook that prevents edits to governed content."
+    }
+  ]
+}

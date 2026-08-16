@@ -1,0 +1,155 @@
+name: governance
+
+# The authoritative layer. Local hooks are advisory and bypassable with
+# `--no-verify`; these four checks are what a Ruleset marks as required, and
+# nothing a developer can do inside the PR changes their outcome.
+#
+# Ordering is part of the design: lint, semgrep and the agent all consume content
+# from .governance/, so they only run AFTER integrity has proved that content is
+# the registry's. Verifying rules with rules the PR could have edited is theatre.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: governance-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  integrity:
+    name: governance-integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: ${{ vars.NPM_REGISTRY_URL || 'https://registry.npmjs.org' }}
+
+      # Installed from the private registry, never from the PR's node_modules or
+      # a script in the repo — the verifier must not be code the PR can change.
+      - name: Install govctl
+        run: npm install -g @shashiladev-heshan/govctl@${{ vars.GOVCTL_VERSION || 'latest' }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_READ_TOKEN }}
+
+      # The trust root comes from org configuration, not the repository.
+      - name: Configure trust root
+        run: |
+          mkdir -p "$RUNNER_TEMP/govctl"
+          printf '%s' "$TRUST_ROOT" > "$RUNNER_TEMP/govctl/trust.json"
+          echo "GOVCTL_TRUST_ROOT=$RUNNER_TEMP/govctl/trust.json" >> "$GITHUB_ENV"
+        env:
+          TRUST_ROOT: ${{ vars.GOVERNANCE_TRUST_ROOT }}
+
+      # --remote re-fetches the canonical manifest from the registry and ignores
+      # the copy in the PR, so editing a governed file AND its manifest entry
+      # still fails. --strict makes an unverifiable signature fatal.
+      - name: Verify governance integrity
+        run: govctl verify --remote --strict
+
+  lint:
+    name: governance-lint
+    needs: integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          registry-url: ${{ vars.NPM_REGISTRY_URL || 'https://registry.npmjs.org' }}
+
+      # `npm ci` reinstalls @shashiladev-heshan/eslint-config from the lockfile, so a locally
+      # patched node_modules on a developer machine has no effect here.
+      - run: npm ci
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_READ_TOKEN }}
+      - run: npx eslint .
+      - run: npx prettier --check .
+
+  semgrep:
+    name: governance-patterns
+    needs: integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pipx install semgrep
+
+      # Rules come from .governance/, which the integrity job has just proved
+      # matches the registry byte for byte.
+      - name: Run governance pattern rules
+        run: |
+          semgrep scan \
+            --config .governance/policies/semgrep/ \
+            --error \
+            --sarif --output semgrep.sarif \
+            --metrics=off
+
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: semgrep.sarif
+          category: governance-patterns
+
+  semantic:
+    name: governance-semantic
+    needs: integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: ${{ vars.NPM_REGISTRY_URL || 'https://registry.npmjs.org' }}
+
+      - name: Install validator
+        run: npm install -g @shashiladev-heshan/governance-validator@${{ vars.VALIDATOR_VERSION || 'latest' }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_READ_TOKEN }}
+
+      - name: Produce PR diff
+        run: |
+          git diff --unified=3 \
+            "origin/${{ github.event.pull_request.base.ref }}...HEAD" > pr.diff
+          wc -l pr.diff
+
+      # The agent emits Zod-validated findings; `gateVerdict` in policy-core turns
+      # them into the check result according to the tier. The agent never decides
+      # whether the PR merges — it only supplies findings.
+      - name: Semantic review
+        id: review
+        run: |
+          governance-validator review \
+            --diff pr.diff \
+            --governance .governance \
+            --config governance.json \
+            --json-out verdict.json \
+            --markdown-out verdict.md
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+          LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+          LANGFUSE_HOST: ${{ vars.LANGFUSE_HOST }}
+          GITHUB_PR_NUMBER: ${{ github.event.pull_request.number }}
+
+      - name: Post review comment
+        if: always() && hashFiles('verdict.md') != ''
+        run: gh pr comment "${{ github.event.pull_request.number }}" --body-file verdict.md
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Apply gate
+        run: governance-validator gate --verdict verdict.json

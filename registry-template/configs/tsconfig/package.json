@@ -1,0 +1,12 @@
+{
+  "name": "@shashiladev-heshan/tsconfig",
+  "version": "0.1.0",
+  "description": "Org base TypeScript config",
+  "files": [
+    "base.json",
+    "nestjs.json"
+  ],
+  "publishConfig": {
+    "access": "restricted"
+  }
+}

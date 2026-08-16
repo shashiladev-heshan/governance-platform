@@ -1,0 +1,15 @@
+{
+  "name": "governance",
+  "displayName": "Allion Governance",
+  "version": "0.1.0",
+  "description": "Governed coding standards and patterns, distributed as Claude Code skills, plus the guard hook that keeps them read-only.",
+  "author": {
+    "name": "Allion Platform Team",
+    "email": "platform@alliontechnologies.com"
+  },
+  "license": "UNLICENSED",
+  "keywords": ["governance", "standards", "nestjs", "security"],
+  "skills": "./skills/",
+  "commands": ["./commands/governance-review.md"],
+  "hooks": "./hooks/hooks.json"
+}

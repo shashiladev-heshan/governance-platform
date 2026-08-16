@@ -1,0 +1,46 @@
+{
+  "name": "@shashiladev-heshan/governance-validator",
+  "version": "0.1.0",
+  "description": "Semantic PR reviewer — judges a diff against the governed pattern skills and emits a schema-validated verdict",
+  "license": "UNLICENSED",
+  "type": "module",
+  "bin": {
+    "governance-validator": "./dist/index.js"
+  },
+  "main": "./dist/api.js",
+  "types": "./dist/api.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/api.d.ts",
+      "default": "./dist/api.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shashiladev-heshan/governance-platform.git",
+    "directory": "packages/validator-agent"
+  },
+  "publishConfig": {
+    "access": "restricted"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && chmod +x dist/index.js",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.1.0",
+    "@shashiladev-heshan/policy-core": "^0.1.0",
+    "commander": "^12.1.0",
+    "yaml": "^2.6.1",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}

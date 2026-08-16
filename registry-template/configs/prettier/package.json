@@ -1,0 +1,15 @@
+{
+  "name": "@shashiladev-heshan/prettier-config",
+  "version": "0.1.0",
+  "description": "Org Prettier config",
+  "main": "./index.json",
+  "files": [
+    "index.json"
+  ],
+  "publishConfig": {
+    "access": "restricted"
+  },
+  "peerDependencies": {
+    "prettier": ">=3"
+  }
+}

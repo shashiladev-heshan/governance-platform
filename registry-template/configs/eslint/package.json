@@ -1,0 +1,21 @@
+{
+  "name": "@shashiladev-heshan/eslint-config",
+  "version": "0.1.0",
+  "description": "Org ESLint config — the mechanical half of the governance policy",
+  "type": "module",
+  "main": "./index.js",
+  "files": [
+    "index.js"
+  ],
+  "publishConfig": {
+    "access": "restricted"
+  },
+  "dependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.18.0",
+    "@typescript-eslint/parser": "^8.18.0",
+    "eslint-config-prettier": "^9.1.0"
+  },
+  "peerDependencies": {
+    "eslint": ">=9"
+  }
+}

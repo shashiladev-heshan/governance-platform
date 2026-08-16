@@ -1,0 +1,52 @@
+rules:
+  - id: governance-no-empty-catch
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >-
+      Empty catch block swallows the failure. Handle it, translate and rethrow, or let
+      it propagate. See skill error-handling#no-swallowed-errors.
+    metadata:
+      governance-rule: no-swallowed-errors
+      skill: error-handling
+    patterns:
+      - pattern-either:
+          - pattern: |
+              try { ... } catch($E) { }
+          - pattern: |
+              try { ... } catch { }
+
+  - id: governance-log-only-catch
+    languages: [typescript, javascript]
+    severity: WARNING
+    message: >-
+      Catch block only logs — the caller cannot tell the operation failed. Rethrow a
+      domain error, or document the deliberate fallback path.
+      See skill error-handling#no-swallowed-errors.
+    metadata:
+      governance-rule: no-swallowed-errors
+      skill: error-handling
+    patterns:
+      - pattern-either:
+          - pattern: |
+              try { ... } catch($E) { console.error(...); }
+          - pattern: |
+              try { ... } catch($E) { console.log(...); }
+          - pattern: |
+              try { ... } catch($E) { $LOGGER.error(...); }
+          - pattern: |
+              try { ... } catch($E) { $LOGGER.warn(...); }
+
+  - id: governance-throw-non-error
+    languages: [typescript, javascript]
+    severity: WARNING
+    message: >-
+      Throwing a string or object literal loses the stack trace and cannot be mapped by
+      the exception filter. Throw a typed domain error.
+      See skill error-handling#typed-domain-errors.
+    metadata:
+      governance-rule: typed-domain-errors
+      skill: error-handling
+    patterns:
+      - pattern-either:
+          - pattern: throw "..."
+          - pattern: throw `...`

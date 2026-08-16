@@ -1,0 +1,24 @@
+{
+  "name": "governance-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Development Governance Platform — registry, govctl CLI, policy resolution, validator agent",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "npm run build -w @shashiladev-heshan/policy-core && npm run build -w @shashiladev-heshan/govctl && npm run build -w @shashiladev-heshan/governance-validator",
+    "test": "npm run build && node --test packages/*/test/*.test.js",
+    "demo": "npm run build && bash scripts/demo-tamper.sh",
+    "pilot": "bash scripts/pilot-local.sh",
+    "clean": "rm -rf packages/*/dist"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  }
+}
