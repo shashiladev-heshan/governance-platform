@@ -2,6 +2,7 @@
 name: error-handling
 description: How failures are represented, propagated and surfaced — typed domain errors, no swallowed exceptions, no internal detail in client responses. Use when writing or reviewing any try/catch, error class, exception filter or error response.
 metadata:
+  applyTo: '**/*.ts, **/*.tsx'
   rules: [no-swallowed-errors, typed-domain-errors, no-error-detail-leak]
 ---
 

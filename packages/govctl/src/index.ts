@@ -38,6 +38,7 @@ program
   .option('--force', 'overwrite an existing governance.json')
   .option('--skip-hooks', 'do not install lefthook.yml')
   .option('--skip-ci', 'do not write the CI workflow or CODEOWNERS')
+  .option('--skip-assistants', 'do not wire the skills into Claude Code / Copilot')
   .option('--json', 'machine-readable output')
   .action(
     run(
@@ -48,6 +49,7 @@ program
         force?: boolean;
         skipHooks?: boolean;
         skipCi?: boolean;
+        skipAssistants?: boolean;
         json?: boolean;
       }) =>
         cmdInit({
@@ -58,6 +60,7 @@ program
           ...(opts.force ? { force: true } : {}),
           ...(opts.skipHooks ? { skipHooks: true } : {}),
           ...(opts.skipCi ? { skipCi: true } : {}),
+          ...(opts.skipAssistants ? { skipAssistants: true } : {}),
           ...(opts.json ? { json: true } : {}),
         }),
     ),

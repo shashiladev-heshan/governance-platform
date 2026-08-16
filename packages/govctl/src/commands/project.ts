@@ -40,6 +40,11 @@ import {
   requiredCheckNames,
   type CiConfig,
 } from '../lib/ci.js';
+import {
+  generateAssistantFiles,
+  readAssistantsConfig,
+  type AssistantsConfig,
+} from '../lib/assistants.js';
 import { color, log } from '../lib/log.js';
 import { verifyProject, type ProjectVerifyResult } from '../verify.js';
 
@@ -51,6 +56,7 @@ export interface InitOptions {
   force?: boolean;
   skipHooks?: boolean;
   skipCi?: boolean;
+  skipAssistants?: boolean;
   json?: boolean;
 }
 
@@ -126,6 +132,10 @@ export async function cmdInit(options: InitOptions): Promise<number> {
       if (written.codeowners === 'written') log.ok(`wrote ${CODEOWNERS_PATH}`);
     }
 
+    if (!options.skipAssistants) {
+      await writeAssistantWiring(projectRoot, govDir, await readAssistantsConfig(fetched.dir));
+    }
+
     const result = await verifyProject({ projectRoot, remote: false, strict: false });
     printVerify(result, options.json ?? false);
 
@@ -165,6 +175,7 @@ export async function cmdSync(options: SyncOptions): Promise<number> {
     const manifestSha256 = await copyManifest(fetched.dir, govDir);
 
     await writeConfig(projectRoot, { ...config, version, manifestSha256, governedDirs });
+    await writeAssistantWiring(projectRoot, govDir, await readAssistantsConfig(fetched.dir));
 
     const result = await verifyProject({ projectRoot, remote: false, strict: false });
     printVerify(result, options.json ?? false);
@@ -352,6 +363,25 @@ export async function cmdRestore(options: RestoreOptions): Promise<number> {
 }
 
 // --- helpers ---------------------------------------------------------------
+
+/**
+ * Project the governed skills into the formats Claude Code and Copilot read.
+ * Neither tool scans .governance/, so without this the standards are in the repo
+ * and invisible to the assistants writing most of the code.
+ */
+async function writeAssistantWiring(
+  projectRoot: string,
+  govDir: string,
+  assistants: AssistantsConfig,
+): Promise<void> {
+  const written = await generateAssistantFiles(projectRoot, govDir, assistants);
+  if (written.claudeSkills > 0) {
+    log.ok(`wired ${written.claudeSkills} skill(s) into .claude/skills + CLAUDE.md`);
+  }
+  if (written.copilotInstructions > 0) {
+    log.ok(`wired ${written.copilotInstructions} instruction file(s) into .github/instructions`);
+  }
+}
 
 async function copyManifest(registryDir: string, govDir: string): Promise<string> {
   await mkdir(govDir, { recursive: true });

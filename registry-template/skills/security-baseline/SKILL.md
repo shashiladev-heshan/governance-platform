@@ -2,6 +2,7 @@
 name: security-baseline
 description: Non-negotiable security rules — no secrets in source, no SQL string interpolation, explicit authorisation on every mutating route. Use when writing or reviewing queries, route guards, or anything touching credentials.
 metadata:
+  applyTo: '**/*.ts, **/*.tsx'
   rules: [no-hardcoded-secrets, no-raw-sql-interpolation, authz-on-mutations]
 ---
 

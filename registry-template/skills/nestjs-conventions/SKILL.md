@@ -2,6 +2,7 @@
 name: nestjs-conventions
 description: Structural conventions for NestJS services — controller/service/repository layering, DTO validation, and typed configuration. Use when writing or reviewing any Nest module, controller, service or provider.
 metadata:
+  applyTo: '**/*.controller.ts, **/*.service.ts, **/*.module.ts, **/*.dto.ts'
   rules: [thin-controllers, dto-validation, config-module-only, layered-imports]
 ---
 

@@ -2,6 +2,7 @@
 name: api-design-patterns
 description: Public HTTP API conventions — route versioning, the standard cursor pagination envelope, and response shape consistency. Use when adding or reviewing any externally-visible route.
 metadata:
+  applyTo: '**/*.controller.ts, **/*.dto.ts'
   rules: [api-versioned-routes, api-consistent-pagination]
 ---
 
