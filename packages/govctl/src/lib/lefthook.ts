@@ -59,17 +59,6 @@ export function detectTooling(projectRoot: string): ToolingPresent {
   return { eslint, prettier };
 }
 
-/**
- * Local hooks are convenience, not security — a developer can always pass
- * `--no-verify`. They exist to catch drift in two seconds instead of two
- * minutes of CI. The authoritative check is the required workflow.
- *
- * `govctl` is invoked directly rather than through `npx`. With npx, a machine
- * that does not have govctl installed silently reaches out to the public npm
- * registry for a package called `govctl` — an unscoped name this org does not
- * own — and runs whatever it finds. A "command not found" is the correct
- * failure there.
- */
 /** The published name, used in the "not installed" hint the hooks print. */
 export const GOVCTL_PACKAGE = '@shashiladev-heshan/govctl';
 
@@ -83,6 +72,17 @@ const VERIFY_STEP = [
   '        govctl verify',
 ];
 
+/**
+ * Local hooks are convenience, not security — a developer can always pass
+ * `--no-verify`. They exist to catch drift in two seconds instead of two
+ * minutes of CI. The authoritative check is the required workflow.
+ *
+ * `govctl` is invoked directly rather than through `npx`. With npx, a machine
+ * that does not have govctl installed silently reaches out to the public npm
+ * registry for a package called `govctl` — an unscoped name this org does not
+ * own — and runs whatever it finds. A "command not found" is the correct
+ * failure there.
+ */
 export function renderLefthook(tooling: ToolingPresent): string {
   const lines: string[] = [
     '# Managed by govctl. Local hooks are ADVISORY — the authoritative governance',
@@ -145,34 +145,46 @@ export function renderLefthook(tooling: ToolingPresent): string {
   return lines.join('\n');
 }
 
-/** Paths a project's own tooling must never rewrite. */
-export const IGNORE_MARKER = '# governed content — managed by govctl, do not format';
-export const IGNORED_PATHS = ['.governance/'];
-
 /**
- * Keep formatters away from governed content. Without this, a routine
- * `prettier --write .` rewrites every SKILL.md and the project fails its own
- * integrity check for a reason nobody would guess.
+ * Paths a project's own formatter must not rewrite.
+ *
+ * `.governance/` because reformatting it changes the file hashes and breaks the
+ * project's own integrity check. `lefthook.yml` because govctl generates it and
+ * overwrites it on every `init`, so formatting it is churn — and its quote style
+ * cannot match every project's prettier config anyway (Nest sets
+ * `singleQuote: true`, prettier's default is the opposite). `governance.json`
+ * likewise: govctl rewrites it on every sync, so letting a formatter own it
+ * guarantees recurring churn.
  */
+export const IGNORE_MARKER = '# governed content — managed by govctl, do not format';
+export const IGNORED_PATHS = ['.governance/', 'lefthook.yml', 'governance.json'];
+
 export async function installIgnoreFile(
   projectRoot: string,
   file = '.prettierignore',
-): Promise<'written' | 'appended' | 'skipped'> {
+): Promise<'written' | 'updated' | 'skipped'> {
   const path = join(projectRoot, file);
-  const block = `${IGNORE_MARKER}\n${IGNORED_PATHS.join('\n')}\n`;
 
   if (!existsSync(path)) {
-    await writeFile(path, block, 'utf8');
+    await writeFile(path, `${IGNORE_MARKER}\n${IGNORED_PATHS.join('\n')}\n`, 'utf8');
     return 'written';
   }
 
+  // Check each path individually rather than looking for the marker: a project
+  // set up by an older govctl has the marker but not the newer entries, and an
+  // all-or-nothing check would silently never add them.
   const current = await readFile(path, 'utf8');
-  if (current.includes(IGNORE_MARKER) || IGNORED_PATHS.every((p) => current.includes(p))) {
-    return 'skipped';
-  }
+  const listed = new Set(current.split('\n').map((line) => line.trim()));
+  const missing = IGNORED_PATHS.filter((p) => !listed.has(p));
+
+  if (missing.length === 0) return 'skipped';
+
+  const block = current.includes(IGNORE_MARKER)
+    ? `${missing.join('\n')}\n`
+    : `${IGNORE_MARKER}\n${missing.join('\n')}\n`;
 
   await writeFile(path, `${current.replace(/\n*$/, '\n')}\n${block}`, 'utf8');
-  return 'appended';
+  return 'updated';
 }
 
 /**

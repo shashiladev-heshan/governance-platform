@@ -26,7 +26,12 @@ import {
   writeConfig,
   type GovernanceConfig,
 } from '../lib/config.js';
-import { governanceHookSnippet, installIgnoreFile, installLefthook } from '../lib/lefthook.js';
+import {
+  IGNORED_PATHS,
+  governanceHookSnippet,
+  installIgnoreFile,
+  installLefthook,
+} from '../lib/lefthook.js';
 import { color, log } from '../lib/log.js';
 import { verifyProject, type ProjectVerifyResult } from '../verify.js';
 
@@ -99,7 +104,7 @@ export async function cmdInit(options: InitOptions): Promise<number> {
     // rewrite every skill file and break the project's own integrity check.
     const ignored = await installIgnoreFile(projectRoot);
     if (ignored !== 'skipped') {
-      log.ok(`${ignored} .prettierignore entry for .governance/`);
+      log.ok(`${ignored} .prettierignore (${IGNORED_PATHS.join(", ")})`);
     }
 
     const result = await verifyProject({ projectRoot, remote: false, strict: false });

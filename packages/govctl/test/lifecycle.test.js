@@ -251,3 +251,40 @@ describe('lefthook stub handling', () => {
     assert.match(readFileSync(join(project, 'lefthook.yml'), 'utf8'), /echo hello/);
   });
 });
+
+describe('prettierignore maintenance', () => {
+  let world;
+  before(() => {
+    world = makeWorld({ tier: 'corporate' });
+  });
+  after(() => world.cleanup());
+
+  test('init ignores both governed content and the generated lefthook.yml', () => {
+    // lefthook.yml is generated and overwritten by init; its quote style cannot
+    // match every project's prettier config, so formatting it is churn that
+    // fails the very first commit in a Nest project.
+    const ignore = readFileSync(join(world.project, '.prettierignore'), 'utf8');
+    assert.match(ignore, /^\.governance\/$/m);
+    assert.match(ignore, /^lefthook\.yml$/m);
+    assert.match(ignore, /^governance\.json$/m);
+  });
+
+  test('an existing .prettierignore gains only the entries it is missing', async () => {
+    const project = join(world.root, 'existing-ignore');
+    mkdirSync(project, { recursive: true });
+    writeFileSync(join(project, '.prettierignore'), 'dist\ncoverage\n');
+
+    const result = govctl(
+      ['init', '--registry', world.registry, '--tier', 'corporate', '--tag', world.version],
+      { cwd: project, env: world.env },
+    );
+    assert.equal(result.code, 0, result.stdout + result.stderr);
+
+    const ignore = readFileSync(join(project, '.prettierignore'), 'utf8');
+    assert.match(ignore, /^dist$/m, 'existing entries are preserved');
+    assert.match(ignore, /^coverage$/m);
+    assert.match(ignore, /^\.governance\/$/m);
+    assert.match(ignore, /^lefthook\.yml$/m);
+    assert.match(ignore, /^governance\.json$/m);
+  });
+});
