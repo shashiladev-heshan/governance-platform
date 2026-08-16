@@ -1,16 +1,24 @@
 #!/usr/bin/env node
 import { readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 import { reviewDiff } from './review.js';
 import { renderMarkdown, renderText } from './report.js';
 import type { ReviewOutput } from './schema.js';
+
+const version = (): string => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  return (JSON.parse(readFileSync(join(here, '..', 'package.json'), 'utf8')) as { version: string })
+    .version;
+};
 
 const program = new Command();
 
 program
   .name('governance-validator')
   .description('Semantic PR review against the governed pattern skills')
-  .version('0.1.0');
+  .version(version());
 
 program
   .command('review')

@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 import { cmdInit, cmdRestore, cmdStatus, cmdSync, cmdVerify } from './commands/project.js';
 import {
@@ -12,12 +15,18 @@ import {
 } from './commands/registry.js';
 import { log } from './lib/log.js';
 
+const version = (): string => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  return (JSON.parse(readFileSync(join(here, '..', 'package.json'), 'utf8')) as { version: string })
+    .version;
+};
+
 const program = new Command();
 
 program
   .name('govctl')
   .description('Governance CLI — sync, verify and restore centrally managed governance content')
-  .version('0.1.0');
+  .version(version());
 
 program
   .command('init')
