@@ -1,6 +1,6 @@
 {
   "name": "@shashiladev-heshan/governance-validator",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Semantic PR reviewer — judges a diff against the governed pattern skills and emits a schema-validated verdict",
   "license": "UNLICENSED",
   "type": "module",
@@ -35,7 +35,7 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.1.0",
-    "@shashiladev-heshan/policy-core": "^0.2.1",
+    "@shashiladev-heshan/policy-core": "^0.2.2",
     "commander": "^12.1.0",
     "yaml": "^2.6.1",
     "zod": "^3.24.1"

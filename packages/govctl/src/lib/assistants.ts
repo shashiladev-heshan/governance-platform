@@ -112,6 +112,10 @@ export interface AssistantWriteResult {
   claudeSkills: number;
   copilotInstructions: number;
   claudeMd: 'written' | 'updated' | 'unchanged' | 'skipped';
+  /** Files left alone because the project, not govctl, wrote them. */
+  preserved: string[];
+  /** Generated files removed because their skill was retired upstream. */
+  removed: string[];
 }
 
 export async function generateAssistantFiles(
@@ -124,39 +128,107 @@ export async function generateAssistantFiles(
     claudeSkills: 0,
     copilotInstructions: 0,
     claudeMd: 'skipped',
+    preserved: [],
+    removed: [],
   };
   if (skills.length === 0) return result;
 
+  const governed = new Set(skills.map((s) => s.slug));
+
   if (config.claude) {
     const dir = join(projectRoot, CLAUDE_SKILLS_DIR);
-    // Wipe first: a skill removed upstream must disappear here too, or the
-    // assistant keeps teaching a rule the org has retired.
-    await rm(dir, { recursive: true, force: true });
+    await mkdir(dir, { recursive: true });
+
     for (const skill of skills) {
+      const path = join(dir, skill.slug, 'SKILL.md');
+      if (await isForeign(path)) {
+        result.preserved.push(join(CLAUDE_SKILLS_DIR, skill.slug, 'SKILL.md'));
+        continue;
+      }
       await mkdir(join(dir, skill.slug), { recursive: true });
-      await writeFile(join(dir, skill.slug, 'SKILL.md'), renderClaudeSkill(skill), 'utf8');
+      await writeFile(path, renderClaudeSkill(skill), 'utf8');
       result.claudeSkills++;
     }
-    result.claudeMd = await updateClaudeMd(projectRoot, skills);
+
+    // A skill retired upstream must stop being taught — but only OUR files are
+    // removed. A project's own skills live in this directory too, and deleting
+    // them because the governance registry does not know about them would be
+    // destroying work the tool was never asked to manage.
+    for (const slug of await readDirNames(dir)) {
+      if (governed.has(slug)) continue;
+      const path = join(dir, slug, 'SKILL.md');
+      if (await isGenerated(path)) {
+        await rm(join(dir, slug), { recursive: true, force: true });
+        result.removed.push(join(CLAUDE_SKILLS_DIR, slug));
+      }
+    }
+
+    result.claudeMd = await upsertBlock(
+      join(projectRoot, CLAUDE_MD),
+      renderClaudeBlock(skills),
+      '# CLAUDE.md',
+    );
   }
 
   if (config.copilot) {
     const dir = join(projectRoot, COPILOT_INSTRUCTIONS_DIR);
-    await rm(dir, { recursive: true, force: true });
     await mkdir(dir, { recursive: true });
+
     for (const skill of skills) {
-      await writeFile(
-        join(dir, `${skill.slug}.instructions.md`),
-        renderCopilotInstruction(skill),
-        'utf8',
-      );
+      const path = join(dir, `${skill.slug}.instructions.md`);
+      if (await isForeign(path)) {
+        result.preserved.push(join(COPILOT_INSTRUCTIONS_DIR, `${skill.slug}.instructions.md`));
+        continue;
+      }
+      await writeFile(path, renderCopilotInstruction(skill), 'utf8');
       result.copilotInstructions++;
     }
+
+    for (const file of await readDirFiles(dir)) {
+      const slug = file.replace(/\.instructions\.md$/, '');
+      if (!file.endsWith('.instructions.md') || governed.has(slug)) continue;
+      const path = join(dir, file);
+      if (await isGenerated(path)) {
+        await rm(path, { force: true });
+        result.removed.push(join(COPILOT_INSTRUCTIONS_DIR, file));
+      }
+    }
+
     await mkdir(join(projectRoot, '.github'), { recursive: true });
-    await writeFile(join(projectRoot, COPILOT_INSTRUCTIONS), renderCopilotIndex(skills), 'utf8');
+    await upsertBlock(
+      join(projectRoot, COPILOT_INSTRUCTIONS),
+      renderCopilotBlock(skills),
+      '# Coding standards for this repository',
+    );
   }
 
   return result;
+}
+
+/** Does this file exist and carry our generated marker? */
+async function isGenerated(path: string): Promise<boolean> {
+  if (!existsSync(path)) return false;
+  return (await readFile(path, 'utf8')).includes(GENERATED_HEADER);
+}
+
+/** Does this file exist and NOT carry our marker — i.e. somebody else wrote it? */
+async function isForeign(path: string): Promise<boolean> {
+  if (!existsSync(path)) return false;
+  return !(await readFile(path, 'utf8')).includes(GENERATED_HEADER);
+}
+
+async function readDirNames(dir: string): Promise<string[]> {
+  if (!existsSync(dir)) return [];
+  return (await readdir(dir, { withFileTypes: true }))
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name);
+}
+
+async function readDirFiles(dir: string): Promise<string[]> {
+  if (!existsSync(dir)) return [];
+  return (await readdir(dir, { withFileTypes: true }))
+    .filter((e) => e.isFile())
+    .map((e) => e.name);
 }
 
 function renderClaudeSkill(skill: GovernedSkill): string {
@@ -184,69 +256,44 @@ ${skill.body}
 `;
 }
 
-function renderCopilotIndex(skills: GovernedSkill[]): string {
+function renderCopilotBlock(skills: GovernedSkill[]): string {
   const lines = [
-    `<!-- ${GENERATED_HEADER} -->`,
+    BEGIN,
     '',
-    '# Coding standards for this repository',
+    '## Coding standards (governed — enforced on every PR)',
     '',
-    'These standards are centrally governed. They are enforced on every pull request:',
-    'violations fail the `governance-patterns` and `governance-semantic` checks, so code',
-    'that ignores them cannot merge.',
+    'These standards are centrally governed. Violations fail the `governance-patterns`',
+    'and `governance-semantic` checks, so code that ignores them cannot merge.',
     '',
     'Detailed, file-scoped rules live in `.github/instructions/`. In summary:',
     '',
   ];
-
-  for (const skill of skills) {
-    lines.push(`## ${skill.name}`, '', skill.description, '');
-  }
-
+  for (const skill of skills) lines.push(`- **${skill.name}** — ${skill.description}`);
   lines.push(
-    '---',
     '',
-    'These instruction files are generated from `.governance/`, which is verified by hash',
-    'on every pull request. Editing them does not change what merges — it only makes the',
+    'These files are generated from `.governance/`, which is verified by hash on every',
+    'pull request. Editing them does not change what merges — it only makes the',
     'suggestions disagree with the rules that are actually enforced, and `govctl sync`',
-    'overwrites them anyway. To change a standard, open a pull request against the',
-    'governance registry.',
+    'overwrites them. To change a standard, open a pull request against the governance',
+    'registry.',
     '',
+    END,
   );
   return lines.join('\n');
 }
 
 /**
- * Insert (or refresh) a marker-delimited block in CLAUDE.md, leaving anything a
- * project wrote itself untouched.
+ * Insert or refresh a marker-delimited block, leaving everything the project
+ * wrote around it untouched. Never truncates: a file that already exists and has
+ * no markers gets the block appended, not replaced.
  */
-async function updateClaudeMd(
-  projectRoot: string,
-  skills: GovernedSkill[],
+async function upsertBlock(
+  path: string,
+  block: string,
+  fallbackTitle: string,
 ): Promise<'written' | 'updated' | 'unchanged'> {
-  const path = join(projectRoot, CLAUDE_MD);
-  const block = [
-    BEGIN,
-    '',
-    '## Coding standards (governed — enforced on every PR)',
-    '',
-    'This project follows centrally managed standards. The full rules are loaded as',
-    'skills from `.claude/skills/`; read the relevant one before writing code.',
-    '',
-    ...skills.map((s) => `- **${s.name}** — ${s.description}`),
-    '',
-    'Do not edit `.governance/`. It is verified by hash on every pull request and local',
-    'edits are rejected at merge time.',
-    '',
-    '`.claude/skills/` and `.github/instructions/` are generated projections of it. They',
-    'are not verified, so editing them changes nothing about what merges — it only makes',
-    'the assistant\'s advice disagree with the rules that are actually enforced. Both are',
-    'overwritten by `govctl sync`.',
-    '',
-    END,
-  ].join('\n');
-
   if (!existsSync(path)) {
-    await writeFile(path, `# ${'CLAUDE.md'}\n\n${block}\n`, 'utf8');
+    await writeFile(path, `${fallbackTitle}\n\n${block}\n`, 'utf8');
     return 'written';
   }
 
@@ -263,4 +310,27 @@ async function updateClaudeMd(
   if (next === current) return 'unchanged';
   await writeFile(path, next, 'utf8');
   return 'updated';
+}
+
+function renderClaudeBlock(skills: GovernedSkill[]): string {
+  return [
+    BEGIN,
+    '',
+    '## Coding standards (governed — enforced on every PR)',
+    '',
+    'This project follows centrally managed standards. The full rules are loaded as',
+    'skills from `.claude/skills/`; read the relevant one before writing code.',
+    '',
+    ...skills.map((s) => `- **${s.name}** — ${s.description}`),
+    '',
+    'Do not edit `.governance/`. It is verified by hash on every pull request and local',
+    'edits are rejected at merge time.',
+    '',
+    '`.claude/skills/` and `.github/instructions/` are generated projections of it. They',
+    'are not verified, so editing them changes nothing about what merges — it only makes',
+    "the assistant's advice disagree with the rules that are actually enforced. Both are",
+    'overwritten by `govctl sync`.',
+    '',
+    END,
+  ].join('\n');
 }

@@ -1,7 +1,7 @@
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { govctl, makeWorld, cutRelease, readJson, writeJson, appendTo } from './helpers.js';
 import { detectTooling, isStubConfig, renderLefthook } from '../dist/lib/lefthook.js';
 
@@ -430,5 +430,85 @@ describe('assistant wiring', () => {
     assert.equal(result.code, 0, result.stdout + result.stderr);
     assert.equal(existsSync(join(project, '.claude')), false);
     assert.equal(existsSync(join(project, 'CLAUDE.md')), false);
+  });
+});
+
+describe('assistant wiring is not destructive', () => {
+  let world;
+  before(() => {
+    world = makeWorld({ tier: 'corporate' });
+  });
+  after(() => world.cleanup());
+
+  test("sync keeps the project's own Claude skills and Copilot instructions", () => {
+    // These directories are shared with the project. Wiping them because the
+    // governance registry does not know about a file would destroy work govctl
+    // was never asked to manage.
+    const ownSkill = join(world.project, '.claude/skills/our-deploy-runbook/SKILL.md');
+    mkdirSync(dirname(ownSkill), { recursive: true });
+    writeFileSync(ownSkill, '---\nname: our-deploy-runbook\n---\n\nOur own skill.\n');
+
+    const ownInstruction = join(world.project, '.github/instructions/our-team.instructions.md');
+    mkdirSync(dirname(ownInstruction), { recursive: true });
+    writeFileSync(ownInstruction, "---\napplyTo: '**'\n---\n\nOur own instructions.\n");
+
+    assert.equal(govctl(['sync', '--tag', world.version], { cwd: world.project, env: world.env }).code, 0);
+
+    assert.ok(existsSync(ownSkill), "the project's own skill was deleted");
+    assert.match(readFileSync(ownSkill, 'utf8'), /Our own skill/);
+    assert.ok(existsSync(ownInstruction), "the project's own instructions were deleted");
+    assert.match(readFileSync(ownInstruction, 'utf8'), /Our own instructions/);
+  });
+
+  test('a hand-written CLAUDE.md keeps everything outside the markers', () => {
+    const path = join(world.project, 'CLAUDE.md');
+    const current = readFileSync(path, 'utf8');
+    writeFileSync(path, `# Our project\n\nRun the API with \`npm start\`.\n\n${current}\n\n## Deploying\n\nSee the runbook.\n`);
+
+    assert.equal(govctl(['sync', '--tag', world.version], { cwd: world.project, env: world.env }).code, 0);
+
+    const after = readFileSync(path, 'utf8');
+    assert.match(after, /Run the API with `npm start`/);
+    assert.match(after, /## Deploying/);
+    assert.match(after, /BEGIN GOVERNED SKILLS/);
+  });
+
+  test('a pre-existing copilot-instructions.md is appended to, never replaced', () => {
+    const project = join(world.root, 'own-copilot');
+    mkdirSync(join(project, '.github'), { recursive: true });
+    writeFileSync(
+      join(project, '.github/copilot-instructions.md'),
+      '# House rules\n\nAlways write tests.\n',
+    );
+
+    const result = govctl(
+      ['init', '--registry', world.registry, '--tier', 'corporate', '--tag', world.version],
+      { cwd: project, env: world.env },
+    );
+    assert.equal(result.code, 0, result.stdout + result.stderr);
+
+    const after = readFileSync(join(project, '.github/copilot-instructions.md'), 'utf8');
+    assert.match(after, /Always write tests/, 'the project content was destroyed');
+    assert.match(after, /BEGIN GOVERNED SKILLS/);
+  });
+
+  test('a governed file the project overwrote by hand is reported, not clobbered', () => {
+    const project = join(world.root, 'foreign-skill');
+    mkdirSync(join(project, '.claude/skills/error-handling'), { recursive: true });
+    writeFileSync(
+      join(project, '.claude/skills/error-handling/SKILL.md'),
+      '---\nname: error-handling\n---\n\nMy own version.\n',
+    );
+
+    const result = govctl(
+      ['init', '--registry', world.registry, '--tier', 'corporate', '--tag', world.version],
+      { cwd: project, env: world.env },
+    );
+    assert.equal(result.code, 0, result.stdout + result.stderr);
+    assert.match(result.stdout, /left .*error-handling.*alone — it was not written by govctl/);
+    assert.match(
+      readFileSync(join(project, '.claude/skills/error-handling/SKILL.md'), 'utf8'),
+      /My own version/,
+    );
   });
 });

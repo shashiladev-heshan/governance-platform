@@ -1,6 +1,6 @@
 {
   "name": "@shashiladev-heshan/policy-core",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Deterministic governance policy resolution: base policy -> tier overlay -> project overrides",
   "license": "UNLICENSED",
   "type": "module",

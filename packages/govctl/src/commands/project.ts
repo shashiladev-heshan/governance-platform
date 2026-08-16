@@ -381,6 +381,12 @@ async function writeAssistantWiring(
   if (written.copilotInstructions > 0) {
     log.ok(`wired ${written.copilotInstructions} instruction file(s) into .github/instructions`);
   }
+  for (const path of written.removed) {
+    log.ok(`removed ${path} (retired upstream)`);
+  }
+  for (const path of written.preserved) {
+    log.warn(`left ${path} alone — it was not written by govctl`);
+  }
 }
 
 async function copyManifest(registryDir: string, govDir: string): Promise<string> {
